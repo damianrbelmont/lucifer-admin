@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lucifer Admin JSON</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <main class="admin-container">
+        <h1 class="admin-title">LUCIFER ADMIN</h1>
+
+        <section class="admin-box admin-section">
+            <h2 class="section-title">Plantillas Canonicas (Fuente Remota)</h2>
+
+            <div class="template-controls">
+                <label class="field-label" for="entryTypeSelect">Tipo de entrada</label>
+                <select id="entryTypeSelect">
+                    <option value="character">character</option>
+                    <option value="location">location</option>
+                    <option value="event">event</option>
+                    <option value="concept">concept</option>
+                </select>
+
+                <button id="loadTemplateBtn" class="action-btn action-btn-secondary" type="button">CARGAR PLANTILLA</button>
+                <button id="resetTemplateBtn" class="action-btn action-btn-secondary" type="button">RESETEAR DESDE PLANTILLA</button>
+            </div>
+
+            <p id="templateStatus" class="auth-status">Listo para cargar plantilla remota.</p>
+            <p class="template-source" id="templateSource"></p>
+        </section>
+
+        <section class="admin-box admin-section">
+            <h2 class="section-title">Editor Dinamico JSON</h2>
+            <div id="dynamicFormRoot" class="dynamic-form-root"></div>
+        </section>
+
+        <section class="admin-box admin-section">
+            <h2 class="section-title">Acciones</h2>
+            <button id="importJsonBtn" class="action-btn action-btn-secondary" type="button">IMPORTAR JSON</button>
+            <input id="importJsonInput" type="file" accept=".json,application/json" hidden>
+            <button id="downloadJsonBtn" class="action-btn" type="button">DESCARGAR JSON</button>
+            <button id="copyJsonBtn" class="action-btn action-btn-secondary" type="button">COPIAR JSON</button>
+            <button id="downloadPdfBtn" class="action-btn action-btn-secondary" type="button">DESCARGAR PDF FORMATEADO</button>
+        </section>
+
+        <section class="admin-box admin-section">
+            <h2 class="section-title">Vista Previa JSON</h2>
+            <pre id="jsonPreview" class="json-preview">{}</pre>
+        </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script type="module" src="firebase.js"></script>
+</body>
+
+</html>
