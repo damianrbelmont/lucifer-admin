@@ -194,6 +194,11 @@ textarea::placeholder {
     gap: 6px;
 }
 
+.field-hint {
+    color: var(--text-muted);
+    font-size: 0.76rem;
+}
+
 .json-array {
     border: 1px solid rgba(184, 155, 94, 0.2);
     border-radius: 6px;

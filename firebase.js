@@ -7,6 +7,14 @@ const TEMPLATE_URLS = {
     concept: `${TEMPLATE_BASE_URL}concept.base.json`
 };
 
+const IMAGE_BASE_PATH = "assets/images";
+const IMAGE_FOLDER_BY_TYPE = {
+    character: "characters",
+    location: "locations",
+    event: "events",
+    concept: "concepts"
+};
+
 const entryTypeSelect = document.getElementById("entryTypeSelect");
 const loadTemplateBtn = document.getElementById("loadTemplateBtn");
 const resetTemplateBtn = document.getElementById("resetTemplateBtn");
@@ -123,6 +131,66 @@ function normalizePublicationVisibility(value) {
     return normalized === "public" ? "public" : "private";
 }
 
+function getImageFolderByType(type) {
+    return IMAGE_FOLDER_BY_TYPE[normalizeEntryType(type)] || "";
+}
+
+function isHttpUrl(value) {
+    return /^https?:\/\//i.test((value || "").toString().trim());
+}
+
+function extractImageFileName(value) {
+    const clean = cleanString(value).replace(/\\/g, "/");
+    if (!clean || isHttpUrl(clean)) return clean;
+    const parts = clean.split("/").filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : clean;
+}
+
+function toCanonicalImagePath(value, type) {
+    const clean = cleanString(value).replace(/\\/g, "/");
+    if (!clean || isHttpUrl(clean)) return clean;
+
+    const noLeadingSlash = clean.replace(/^\/+/, "");
+    if (noLeadingSlash.startsWith(`${IMAGE_BASE_PATH}/`)) {
+        return noLeadingSlash;
+    }
+    if (noLeadingSlash.startsWith(`lore/lucifer/${IMAGE_BASE_PATH}/`)) {
+        return noLeadingSlash.replace(/^lore\/lucifer\//, "");
+    }
+
+    const folder = getImageFolderByType(type);
+    if (!folder) return extractImageFileName(noLeadingSlash);
+
+    const fileName = extractImageFileName(noLeadingSlash);
+    return fileName ? `${IMAGE_BASE_PATH}/${folder}/${fileName}` : "";
+}
+
+function normalizeImageFieldsForEditor(payload, type) {
+    if (!isPlainObject(payload)) return payload;
+
+    const next = deepClone(payload);
+    if (typeof next.image === "string") {
+        next.image = extractImageFileName(next.image);
+    }
+
+    if (isPlainObject(next.seo) && typeof next.seo.image === "string") {
+        next.seo.image = extractImageFileName(next.seo.image);
+    }
+
+    return next;
+}
+
+function isImageFieldPath(path) {
+    const normalizedPath = getNormalizedPath(path);
+    return normalizedPath === "image" || normalizedPath === "seo.image";
+}
+
+function getImageFieldHint(type) {
+    const folder = getImageFolderByType(type);
+    if (!folder) return `Ruta final: ${IMAGE_BASE_PATH}/<carpeta>/<archivo>`;
+    return `Ruta final: ${IMAGE_BASE_PATH}/${folder}/<archivo>`;
+}
+
 function normalizeForExport(payload) {
     const normalized = normalizeTextRecursively(deepClone(payload), []);
 
@@ -133,6 +201,12 @@ function normalizeForExport(payload) {
     normalized.publication.status = normalizePublicationStatus(normalized.publication.status);
     normalized.publication.visibility = normalizePublicationVisibility(normalized.publication.visibility);
     normalized.type = state.currentType;
+    normalized.image = toCanonicalImagePath(normalized.image, normalized.type);
+
+    if (!isPlainObject(normalized.seo)) {
+        normalized.seo = {};
+    }
+    normalized.seo.image = toCanonicalImagePath(normalized.seo.image, normalized.type);
 
     return normalized;
 }
@@ -334,6 +408,14 @@ function createPrimitiveEditor(key, value, onChange, path) {
     const input = document.createElement("input");
     input.type = "text";
     input.value = value ?? "";
+    if (isImageFieldPath(path)) {
+        input.placeholder = "valak.webp";
+
+        const hint = document.createElement("p");
+        hint.className = "field-hint";
+        hint.textContent = "Introduce solo el nombre del archivo con extension. " + getImageFieldHint(state.currentType);
+        row.appendChild(hint);
+    }
     input.addEventListener("input", () => onChange(input.value, false));
     row.appendChild(input);
     return row;
@@ -571,7 +653,7 @@ async function loadTemplateForType(type, forceReload = false) {
     try {
         const template = await fetchTemplate(type, forceReload);
         state.baseTemplate = deepClone(template);
-        state.workingData = deepClone(template);
+        state.workingData = normalizeImageFieldsForEditor(template, type);
         state.workingData.type = type;
         renderDynamicForm();
         updatePreview();
@@ -616,7 +698,7 @@ async function importLocalJsonFile(file) {
         }
 
         importedPayload.type = importType;
-        state.workingData = importedPayload;
+        state.workingData = normalizeImageFieldsForEditor(importedPayload, importType);
 
         renderDynamicForm();
         updatePreview();
@@ -748,7 +830,7 @@ loadTemplateBtn.addEventListener("click", async () => {
 
 resetTemplateBtn.addEventListener("click", () => {
     if (!state.baseTemplate) return;
-    state.workingData = deepClone(state.baseTemplate);
+    state.workingData = normalizeImageFieldsForEditor(state.baseTemplate, state.currentType);
     state.workingData.type = state.currentType;
     renderDynamicForm();
     updatePreview();
