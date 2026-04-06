@@ -51,6 +51,53 @@ function isPlainObject(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function getNormalizedPath(path) {
+    return (path || [])
+        .map((segment) => (segment ?? "").toString().toLowerCase())
+        .join(".");
+}
+
+function isMultilineTextPath(path) {
+    const normalizedPath = getNormalizedPath(path);
+    if (!normalizedPath) return false;
+
+    if (normalizedPath === "description") return true;
+    if (normalizedPath === "excerpt") return true;
+    if (normalizedPath === "content.summary") return true;
+    if (/^content\.sections\.\d+\.text$/.test(normalizedPath)) return true;
+    if (normalizedPath.endsWith(".description")) return true;
+    if (normalizedPath.endsWith(".excerpt")) return true;
+    return false;
+}
+
+function normalizeTextValue(value, asMultiline) {
+    const normalized = (value ?? "").toString().replace(/\r\n?/g, "\n");
+    if (asMultiline) {
+        return normalized.trim();
+    }
+    return normalized.trim();
+}
+
+function normalizeTextRecursively(value, path = []) {
+    if (Array.isArray(value)) {
+        return value.map((item, index) => normalizeTextRecursively(item, [...path, String(index)]));
+    }
+
+    if (isPlainObject(value)) {
+        const nextObject = {};
+        Object.entries(value).forEach(([key, nested]) => {
+            nextObject[key] = normalizeTextRecursively(nested, [...path, key]);
+        });
+        return nextObject;
+    }
+
+    if (typeof value === "string") {
+        return normalizeTextValue(value, isMultilineTextPath(path));
+    }
+
+    return value;
+}
+
 function normalizeEntryType(value) {
     const normalized = (value || "").toString().trim().toLowerCase();
     const aliases = {
@@ -77,7 +124,7 @@ function normalizePublicationVisibility(value) {
 }
 
 function normalizeForExport(payload) {
-    const normalized = deepClone(payload);
+    const normalized = normalizeTextRecursively(deepClone(payload), []);
 
     if (!isPlainObject(normalized.publication)) {
         normalized.publication = {};
@@ -229,6 +276,7 @@ function getDefaultByKind(kind) {
 
 function isLongTextField(key, value) {
     if (typeof value !== "string") return false;
+    if (isMultilineTextPath(key)) return true;
     const lowerKey = (key || "").toString().toLowerCase();
     return [
         "description",
@@ -240,7 +288,7 @@ function isLongTextField(key, value) {
     ].some((token) => lowerKey.includes(token)) || value.includes("\n") || value.length > 120;
 }
 
-function createPrimitiveEditor(key, value, onChange) {
+function createPrimitiveEditor(key, value, onChange, path) {
     const row = document.createElement("div");
     row.className = "field-row";
 
@@ -274,7 +322,7 @@ function createPrimitiveEditor(key, value, onChange) {
         return row;
     }
 
-    if (isLongTextField(key, value)) {
+    if (isLongTextField(path, value)) {
         const textarea = document.createElement("textarea");
         textarea.rows = 4;
         textarea.value = value ?? "";
@@ -456,7 +504,7 @@ function createValueEditor(key, value, onChange, path) {
     if (isPlainObject(value)) {
         return createObjectEditor(key, value, onChange, path);
     }
-    return createPrimitiveEditor(key, value, onChange);
+    return createPrimitiveEditor(key, value, onChange, path);
 }
 
 function updatePreview() {
