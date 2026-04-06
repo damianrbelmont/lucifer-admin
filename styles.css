@@ -301,6 +301,11 @@ textarea::placeholder {
     white-space: pre;
 }
 
+.snippet-preview {
+    min-height: 180px;
+    max-height: 360px;
+}
+
 @media (max-width: 860px) {
     .template-controls {
         grid-template-columns: 1fr;

@@ -43,12 +43,20 @@
             <input id="importJsonInput" type="file" accept=".json,application/json" hidden>
             <button id="downloadJsonBtn" class="action-btn" type="button">DESCARGAR JSON</button>
             <button id="copyJsonBtn" class="action-btn action-btn-secondary" type="button">COPIAR JSON</button>
+            <button id="copyIndexSnippetBtn" class="action-btn action-btn-secondary" type="button">COPIAR BLOQUE INDEX.JSON</button>
+            <button id="downloadIndexSnippetBtn" class="action-btn action-btn-secondary" type="button">DESCARGAR SNIPPET INDEX</button>
             <button id="downloadPdfBtn" class="action-btn action-btn-secondary" type="button">DESCARGAR PDF FORMATEADO</button>
         </section>
 
         <section class="admin-box admin-section">
             <h2 class="section-title">Vista Previa JSON</h2>
             <pre id="jsonPreview" class="json-preview">{}</pre>
+        </section>
+
+        <section class="admin-box admin-section">
+            <h2 class="section-title">Snippet para data/index.json (entries[])</h2>
+            <p id="indexSnippetStatus" class="auth-status"></p>
+            <pre id="indexSnippetPreview" class="json-preview snippet-preview">{}</pre>
         </section>
     </main>
 

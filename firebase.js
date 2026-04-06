@@ -14,11 +14,15 @@ const templateStatus = document.getElementById("templateStatus");
 const templateSource = document.getElementById("templateSource");
 const dynamicFormRoot = document.getElementById("dynamicFormRoot");
 const jsonPreview = document.getElementById("jsonPreview");
+const indexSnippetPreview = document.getElementById("indexSnippetPreview");
+const indexSnippetStatus = document.getElementById("indexSnippetStatus");
 
 const importJsonBtn = document.getElementById("importJsonBtn");
 const importJsonInput = document.getElementById("importJsonInput");
 const downloadJsonBtn = document.getElementById("downloadJsonBtn");
 const copyJsonBtn = document.getElementById("copyJsonBtn");
+const copyIndexSnippetBtn = document.getElementById("copyIndexSnippetBtn");
+const downloadIndexSnippetBtn = document.getElementById("downloadIndexSnippetBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 
 const state = {
@@ -31,6 +35,12 @@ const state = {
 function setStatus(message, isError = false) {
     templateStatus.textContent = message;
     templateStatus.style.color = isError ? "#ff8b8b" : "";
+}
+
+function setSnippetStatus(message, isError = false) {
+    if (!indexSnippetStatus) return;
+    indexSnippetStatus.textContent = message;
+    indexSnippetStatus.style.color = isError ? "#ff8b8b" : "";
 }
 
 function deepClone(value) {
@@ -121,6 +131,70 @@ function safeFileName(value) {
         .replace(/^_+|_+$/g, "");
 
     return source || "lucifer_entry";
+}
+
+function cleanString(value) {
+    return (value ?? "").toString().trim();
+}
+
+function resolveSnippetImage(payload) {
+    const primary = cleanString(payload?.image);
+    if (primary) return primary;
+    const seoImage = cleanString(payload?.seo?.image);
+    if (seoImage) return seoImage;
+    return "";
+}
+
+function buildIndexSnippet(payload) {
+    const id = cleanString(payload?.id);
+    const slug = cleanString(payload?.slug);
+    const title = cleanString(payload?.title);
+    const type = cleanString(payload?.type);
+    const section = cleanString(payload?.section).replace(/^\/+|\/+$/g, "");
+    const subsection = cleanString(payload?.subsection);
+    const excerpt = cleanString(payload?.excerpt);
+    const image = resolveSnippetImage(payload);
+    const status = normalizePublicationStatus(payload?.publication?.status);
+    const visibility = normalizePublicationVisibility(payload?.publication?.visibility);
+    const path = `${section}/${id}.json`;
+
+    return {
+        id,
+        slug,
+        title,
+        type,
+        section,
+        subsection,
+        excerpt,
+        image,
+        path,
+        status,
+        visibility
+    };
+}
+
+function getIndexSnippetMissingFields(snippet) {
+    const required = ["id", "slug", "title", "type", "section"];
+    return required.filter((field) => !cleanString(snippet?.[field]));
+}
+
+function updateIndexSnippetPreview(payload) {
+    if (!indexSnippetPreview) return;
+    if (!payload) {
+        indexSnippetPreview.textContent = "{}";
+        setSnippetStatus("Sin datos para generar snippet.");
+        return;
+    }
+
+    const snippet = buildIndexSnippet(payload);
+    const missing = getIndexSnippetMissingFields(snippet);
+    indexSnippetPreview.textContent = JSON.stringify(snippet, null, 2);
+
+    if (missing.length > 0) {
+        setSnippetStatus(`Faltan campos criticos: ${missing.join(", ")}. Puedes copiar igual para completar manualmente.`, true);
+    } else {
+        setSnippetStatus("Snippet listo para pegar en lore/lucifer/data/index.json > entries[].");
+    }
 }
 
 function triggerDownload(fileName, content, mimeType) {
@@ -388,10 +462,12 @@ function createValueEditor(key, value, onChange, path) {
 function updatePreview() {
     if (!state.workingData) {
         jsonPreview.textContent = "{}";
+        updateIndexSnippetPreview(null);
         return;
     }
     const payload = normalizeForExport(state.workingData);
     jsonPreview.textContent = JSON.stringify(payload, null, 2);
+    updateIndexSnippetPreview(payload);
 }
 
 function renderDynamicForm() {
@@ -538,6 +614,39 @@ async function copyJsonToClipboard() {
     }
 }
 
+async function copyIndexSnippetToClipboard() {
+    const payload = getCurrentPayload();
+    if (!payload) return;
+
+    const snippet = buildIndexSnippet(payload);
+    const missing = getIndexSnippetMissingFields(snippet);
+    const text = JSON.stringify(snippet, null, 2);
+
+    try {
+        await navigator.clipboard.writeText(text);
+        if (missing.length > 0) {
+            setStatus(`Snippet copiado con campos pendientes: ${missing.join(", ")}.`, true);
+        } else {
+            setStatus("Snippet index.json copiado.");
+        }
+        updateIndexSnippetPreview(payload);
+    } catch (error) {
+        console.error(error);
+        setStatus("No se pudo copiar el snippet.", true);
+    }
+}
+
+function downloadIndexSnippet() {
+    const payload = getCurrentPayload();
+    if (!payload) return;
+
+    const snippet = buildIndexSnippet(payload);
+    const text = JSON.stringify(snippet, null, 2);
+    const baseName = safeFileName(`${snippet.id || payload.id || payload.type}_index_snippet`);
+    triggerDownload(`${baseName}.json`, text, "application/json;charset=utf-8");
+    updateIndexSnippetPreview(payload);
+}
+
 function exportPdf() {
     const payload = getCurrentPayload();
     if (!payload) return;
@@ -613,6 +722,8 @@ importJsonInput.addEventListener("change", async (event) => {
 
 downloadJsonBtn.addEventListener("click", exportJson);
 copyJsonBtn.addEventListener("click", copyJsonToClipboard);
+copyIndexSnippetBtn.addEventListener("click", copyIndexSnippetToClipboard);
+downloadIndexSnippetBtn.addEventListener("click", downloadIndexSnippet);
 downloadPdfBtn.addEventListener("click", exportPdf);
 
 loadTemplateForType(state.currentType).catch((error) => {
