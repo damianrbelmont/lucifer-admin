@@ -14,6 +14,7 @@ const IMAGE_FOLDER_BY_TYPE = {
     event: "events",
     concept: "concepts"
 };
+const RELATION_KEYS = ["characters", "locations", "events", "concepts", "organizations", "related"];
 
 const entryTypeSelect = document.getElementById("entryTypeSelect");
 const loadTemplateBtn = document.getElementById("loadTemplateBtn");
@@ -22,6 +23,7 @@ const templateStatus = document.getElementById("templateStatus");
 const templateSource = document.getElementById("templateSource");
 const dynamicFormRoot = document.getElementById("dynamicFormRoot");
 const jsonPreview = document.getElementById("jsonPreview");
+const normalizationStatus = document.getElementById("normalizationStatus");
 const indexSnippetPreview = document.getElementById("indexSnippetPreview");
 const indexSnippetStatus = document.getElementById("indexSnippetStatus");
 
@@ -49,6 +51,26 @@ function setSnippetStatus(message, isError = false) {
     if (!indexSnippetStatus) return;
     indexSnippetStatus.textContent = message;
     indexSnippetStatus.style.color = isError ? "#ff8b8b" : "";
+}
+
+function setNormalizationStatus(message, isWarning = false) {
+    if (!normalizationStatus) return;
+    normalizationStatus.textContent = message;
+    normalizationStatus.style.color = isWarning ? "#e6c98f" : "";
+}
+
+function pushCorrection(corrections, message) {
+    if (!message) return;
+    if (!corrections.includes(message)) {
+        corrections.push(message);
+    }
+}
+
+function summarizeCorrections(corrections, max = 4) {
+    if (!Array.isArray(corrections) || corrections.length === 0) return "";
+    const visible = corrections.slice(0, max);
+    const suffix = corrections.length > max ? ` (+${corrections.length - max} mas)` : "";
+    return `${visible.join(" | ")}${suffix}`;
 }
 
 function deepClone(value) {
@@ -191,24 +213,375 @@ function getImageFieldHint(type) {
     return `Ruta final: ${IMAGE_BASE_PATH}/${folder}/<archivo>`;
 }
 
-function normalizeForExport(payload) {
+function tryParseJsonString(value) {
+    const raw = cleanString(value);
+    if (!raw) return null;
+    if (!(raw.startsWith("{") || raw.startsWith("["))) return null;
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
+function uniqueCleanStrings(values) {
+    const seen = new Set();
+    const result = [];
+    (values || []).forEach((value) => {
+        const clean = cleanString(value);
+        if (!clean) return;
+        const key = clean.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        result.push(clean);
+    });
+    return result;
+}
+
+function slugifyIdentifier(value, fallbackIndex = 0) {
+    const source = cleanString(value) || `section_${fallbackIndex + 1}`;
+    return source
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "") || `section_${fallbackIndex + 1}`;
+}
+
+function toParagraphText(value) {
+    if (typeof value === "string") return normalizeTextValue(value, true);
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    if (Array.isArray(value)) {
+        const flat = value
+            .map((item) => toParagraphText(item))
+            .filter(Boolean);
+        return flat.join("\n\n");
+    }
+    if (isPlainObject(value)) {
+        return normalizeTextValue(JSON.stringify(value, null, 2), true);
+    }
+    return "";
+}
+
+function normalizeSectionItem(rawSection, index, fallbackTitle = "", corrections = []) {
+    let id = "";
+    let title = "";
+    let text = "";
+
+    if (typeof rawSection === "string" || typeof rawSection === "number" || typeof rawSection === "boolean") {
+        title = fallbackTitle || `Seccion ${index + 1}`;
+        text = toParagraphText(rawSection);
+    } else if (Array.isArray(rawSection)) {
+        title = fallbackTitle || `Seccion ${index + 1}`;
+        text = toParagraphText(rawSection);
+        pushCorrection(corrections, "content.sections[]: convertido item array a texto");
+    } else if (isPlainObject(rawSection)) {
+        id = cleanString(rawSection.id || rawSection.slug);
+        title = cleanString(rawSection.title || rawSection.tittle || rawSection.heading || rawSection.name || fallbackTitle);
+        text = toParagraphText(rawSection.text ?? rawSection.description ?? rawSection.body ?? rawSection.content ?? rawSection.value ?? "");
+
+        if (!text) {
+            const looseValues = Object.entries(rawSection)
+                .filter(([key]) => !["id", "slug", "title", "tittle", "heading", "name", "text", "description", "body", "content", "value", "order"].includes(key))
+                .map(([, value]) => toParagraphText(value))
+                .filter(Boolean);
+            if (looseValues.length > 0) {
+                text = looseValues.join("\n\n");
+                pushCorrection(corrections, "content.sections[]: consolidado objeto no canonico");
+            }
+        }
+    }
+
+    text = normalizeTextValue(text, true);
+    if (!text) return null;
+    title = title || fallbackTitle || `Seccion ${index + 1}`;
+    id = id || slugifyIdentifier(title, index);
+
+    return {
+        id,
+        title,
+        text
+    };
+}
+
+function normalizeContentForExport(contentValue, corrections = []) {
+    const source = isPlainObject(contentValue) ? deepClone(contentValue) : {};
+    if (!isPlainObject(contentValue)) {
+        pushCorrection(corrections, "content: creado objeto canonico");
+    }
+
+    let summary = normalizeTextValue(source.summary ?? "", true);
+    if (!summary && typeof source.intro === "string" && cleanString(source.intro)) {
+        summary = normalizeTextValue(source.intro, true);
+        pushCorrection(corrections, "content.intro -> content.summary");
+    }
+
+    const sections = [];
+    const sourceSections = source.sections;
+
+    if (Array.isArray(sourceSections)) {
+        sourceSections.forEach((item, index) => {
+            const normalizedSection = normalizeSectionItem(item, index, "", corrections);
+            if (normalizedSection) sections.push(normalizedSection);
+        });
+    } else if (sourceSections !== undefined && sourceSections !== null && sourceSections !== "") {
+        const normalizedSection = normalizeSectionItem(sourceSections, 0, "Seccion", corrections);
+        if (normalizedSection) sections.push(normalizedSection);
+        pushCorrection(corrections, "content.sections: convertido a array canonico");
+    }
+
+    Object.entries(source).forEach(([key, value]) => {
+        if (["summary", "sections", "intro"].includes(key)) return;
+        if (value === undefined || value === null) return;
+        if (typeof value === "string" && !cleanString(value)) return;
+
+        const normalizedSection = normalizeSectionItem(value, sections.length, key, corrections);
+        if (!normalizedSection) return;
+        sections.push(normalizedSection);
+        pushCorrection(corrections, `content.${key}: movido a content.sections[]`);
+    });
+
+    const usedIds = new Set();
+    const canonicalSections = sections.map((section, index) => {
+        let nextId = slugifyIdentifier(section.id || section.title, index);
+        let suffix = 2;
+        while (usedIds.has(nextId)) {
+            nextId = `${nextId}_${suffix}`;
+            suffix += 1;
+        }
+        usedIds.add(nextId);
+        return {
+            id: nextId,
+            title: cleanString(section.title) || `Seccion ${index + 1}`,
+            text: normalizeTextValue(section.text, true)
+        };
+    }).filter((section) => cleanString(section.text));
+
+    return {
+        summary,
+        sections: canonicalSections
+    };
+}
+
+function normalizeRelationBucket(value, bucketName, corrections = []) {
+    if (value === undefined || value === null || value === "") return [];
+
+    const stack = Array.isArray(value) ? [...value] : [value];
+    const collected = [];
+
+    while (stack.length > 0) {
+        const current = stack.shift();
+        if (current === undefined || current === null) continue;
+
+        if (typeof current === "string") {
+            const clean = current.trim();
+            if (!clean) continue;
+
+            const parsed = tryParseJsonString(clean);
+            if (parsed !== null) {
+                stack.push(parsed);
+                pushCorrection(corrections, `relations.${bucketName}: convertido desde JSON stringificado`);
+                continue;
+            }
+
+            if (clean.includes(",") && !clean.includes("://")) {
+                const parts = clean.split(",").map((part) => part.trim()).filter(Boolean);
+                if (parts.length > 1) {
+                    collected.push(...parts);
+                    pushCorrection(corrections, `relations.${bucketName}: separado string con comas`);
+                    continue;
+                }
+            }
+
+            collected.push(clean);
+            continue;
+        }
+
+        if (typeof current === "number" || typeof current === "boolean") {
+            collected.push(String(current));
+            pushCorrection(corrections, `relations.${bucketName}: convertido valor primitivo a string`);
+            continue;
+        }
+
+        if (Array.isArray(current)) {
+            stack.push(...current);
+            continue;
+        }
+
+        if (isPlainObject(current)) {
+            const direct = cleanString(
+                current.id
+                || current.slug
+                || current.ref
+                || current.name
+                || current.title
+                || current.label
+            );
+
+            if (direct) {
+                collected.push(direct);
+                pushCorrection(corrections, `relations.${bucketName}: extraido identificador desde objeto`);
+                continue;
+            }
+
+            const relationEntries = Object.entries(current)
+                .filter(([key]) => RELATION_KEYS.includes((key || "").toLowerCase()));
+
+            if (relationEntries.length > 0) {
+                relationEntries.forEach(([, nestedValue]) => stack.push(nestedValue));
+                pushCorrection(corrections, `relations.${bucketName}: expandido objeto de relaciones`);
+                continue;
+            }
+
+            Object.values(current).forEach((nestedValue) => stack.push(nestedValue));
+            pushCorrection(corrections, `relations.${bucketName}: convertido desde objeto no canonico`);
+        }
+    }
+
+    return uniqueCleanStrings(collected);
+}
+
+function normalizeRelationsForExport(relationsValue, corrections = []) {
+    const relationKeyAliases = {
+        character: "characters",
+        characters: "characters",
+        location: "locations",
+        locations: "locations",
+        event: "events",
+        events: "events",
+        concept: "concepts",
+        concepts: "concepts",
+        organization: "organizations",
+        organizations: "organizations",
+        related: "related"
+    };
+
+    const source = isPlainObject(relationsValue) ? relationsValue : {};
+    if (!isPlainObject(relationsValue)) {
+        pushCorrection(corrections, "relations: creado objeto canonico");
+    }
+
+    const bucketSource = {
+        characters: [],
+        locations: [],
+        events: [],
+        concepts: [],
+        organizations: [],
+        related: []
+    };
+
+    function getEmbeddedRelationsObject(rawValue) {
+        if (isPlainObject(rawValue) && Object.keys(rawValue).some((key) => relationKeyAliases[(key || "").toString().trim().toLowerCase()])) {
+            return rawValue;
+        }
+        if (typeof rawValue === "string") {
+            const parsed = tryParseJsonString(rawValue);
+            if (isPlainObject(parsed) && Object.keys(parsed).some((key) => relationKeyAliases[(key || "").toString().trim().toLowerCase()])) {
+                return parsed;
+            }
+        }
+        return null;
+    }
+
+    Object.entries(source).forEach(([rawKey, value]) => {
+        const embeddedRelations = getEmbeddedRelationsObject(value);
+        if (embeddedRelations) {
+            Object.entries(embeddedRelations).forEach(([embeddedKey, embeddedValue]) => {
+                const embeddedNormalizedKey = relationKeyAliases[(embeddedKey || "").toString().trim().toLowerCase()];
+                if (!embeddedNormalizedKey) return;
+                bucketSource[embeddedNormalizedKey].push(embeddedValue);
+            });
+            pushCorrection(corrections, `relations.${rawKey}: expandido objeto de relaciones embebido`);
+            return;
+        }
+
+        const normalizedKey = relationKeyAliases[(rawKey || "").toString().trim().toLowerCase()];
+        if (!normalizedKey) {
+            if (value !== undefined && value !== null && value !== "") {
+                bucketSource.related.push(value);
+                pushCorrection(corrections, `relations.${rawKey}: movido a relations.related`);
+            }
+            return;
+        }
+
+        bucketSource[normalizedKey].push(value);
+        if (normalizedKey !== rawKey) {
+            pushCorrection(corrections, `relations.${rawKey}: normalizado a relations.${normalizedKey}`);
+        }
+    });
+
+    const normalized = {};
+    RELATION_KEYS.forEach((bucket) => {
+        normalized[bucket] = normalizeRelationBucket(bucketSource[bucket], bucket, corrections);
+    });
+
+    return normalized;
+}
+
+function normalizeForExportDetailed(payload) {
     const normalized = normalizeTextRecursively(deepClone(payload), []);
+    const corrections = [];
+
+    const normalizedType = normalizeEntryType(normalized.type) || state.currentType;
+    if (normalized.type !== normalizedType) {
+        pushCorrection(corrections, `type: normalizado a "${normalizedType}"`);
+    }
+    normalized.type = normalizedType;
 
     if (!isPlainObject(normalized.publication)) {
         normalized.publication = {};
+        pushCorrection(corrections, "publication: creado objeto canonico");
     }
 
+    const originalStatus = cleanString(normalized.publication.status);
+    const originalVisibility = cleanString(normalized.publication.visibility);
     normalized.publication.status = normalizePublicationStatus(normalized.publication.status);
     normalized.publication.visibility = normalizePublicationVisibility(normalized.publication.visibility);
-    normalized.type = state.currentType;
+    if (originalStatus && originalStatus !== normalized.publication.status) {
+        pushCorrection(corrections, `publication.status: normalizado a "${normalized.publication.status}"`);
+    }
+    if (originalVisibility && originalVisibility !== normalized.publication.visibility) {
+        pushCorrection(corrections, `publication.visibility: normalizado a "${normalized.publication.visibility}"`);
+    }
+
+    if (typeof normalized.summary === "string" && cleanString(normalized.summary)) {
+        pushCorrection(corrections, "summary top-level: integrado en content.summary");
+    }
+
+    normalized.content = normalizeContentForExport(normalized.content, corrections);
+    if (!normalized.content.summary && typeof normalized.summary === "string" && cleanString(normalized.summary)) {
+        normalized.content.summary = normalizeTextValue(normalized.summary, true);
+    }
+    if ("summary" in normalized) {
+        delete normalized.summary;
+    }
+
+    normalized.relations = normalizeRelationsForExport(normalized.relations, corrections);
+
+    const originalImage = cleanString(normalized.image);
     normalized.image = toCanonicalImagePath(normalized.image, normalized.type);
+    if (originalImage && originalImage !== normalized.image) {
+        pushCorrection(corrections, "image: normalizada a ruta canonica");
+    }
 
     if (!isPlainObject(normalized.seo)) {
         normalized.seo = {};
+        pushCorrection(corrections, "seo: creado objeto canonico");
     }
+    const originalSeoImage = cleanString(normalized.seo.image);
     normalized.seo.image = toCanonicalImagePath(normalized.seo.image, normalized.type);
+    if (originalSeoImage && originalSeoImage !== normalized.seo.image) {
+        pushCorrection(corrections, "seo.image: normalizada a ruta canonica");
+    }
 
-    return normalized;
+    return {
+        payload: normalized,
+        corrections
+    };
+}
+
+function normalizeForExport(payload) {
+    return normalizeForExportDetailed(payload).payload;
 }
 
 function mergeTemplateWithImported(templateValue, importedValue) {
@@ -592,12 +965,20 @@ function createValueEditor(key, value, onChange, path) {
 function updatePreview() {
     if (!state.workingData) {
         jsonPreview.textContent = "{}";
+        setNormalizationStatus("Estructura canónica: pendiente de datos.");
         updateIndexSnippetPreview(null);
         return;
     }
-    const payload = normalizeForExport(state.workingData);
-    jsonPreview.textContent = JSON.stringify(payload, null, 2);
-    updateIndexSnippetPreview(payload);
+    const result = normalizeForExportDetailed(state.workingData);
+    jsonPreview.textContent = JSON.stringify(result.payload, null, 2);
+
+    if (result.corrections.length > 0) {
+        setNormalizationStatus(`Se normalizo estructura canonica (${result.corrections.length}): ${summarizeCorrections(result.corrections)}`, true);
+    } else {
+        setNormalizationStatus("Estructura canónica: sin correcciones automáticas.");
+    }
+
+    updateIndexSnippetPreview(result.payload);
 }
 
 function renderDynamicForm() {
@@ -718,26 +1099,43 @@ async function importLocalJsonFile(file) {
 
 function getCurrentPayload() {
     if (!state.workingData) return null;
-    return normalizeForExport(state.workingData);
+    return normalizeForExportDetailed(state.workingData).payload;
+}
+
+function getCurrentNormalizationResult() {
+    if (!state.workingData) return null;
+    return normalizeForExportDetailed(state.workingData);
 }
 
 function exportJson() {
-    const payload = getCurrentPayload();
-    if (!payload) return;
+    const result = getCurrentNormalizationResult();
+    if (!result) return;
+    const payload = result.payload;
 
     const jsonText = JSON.stringify(payload, null, 2);
     const fileName = `${safeFileName(payload.id || payload.slug || payload.type)}.json`;
     triggerDownload(fileName, jsonText, "application/json;charset=utf-8");
+
+    if (result.corrections.length > 0) {
+        setStatus(`JSON exportado con normalizacion canonica: ${summarizeCorrections(result.corrections)}.`);
+    } else {
+        setStatus("JSON exportado en formato canonico.");
+    }
 }
 
 async function copyJsonToClipboard() {
-    const payload = getCurrentPayload();
-    if (!payload) return;
+    const result = getCurrentNormalizationResult();
+    if (!result) return;
+    const payload = result.payload;
 
     const jsonText = JSON.stringify(payload, null, 2);
     try {
         await navigator.clipboard.writeText(jsonText);
-        setStatus("JSON copiado al portapapeles.");
+        if (result.corrections.length > 0) {
+            setStatus(`JSON copiado con normalizacion canonica: ${summarizeCorrections(result.corrections)}.`);
+        } else {
+            setStatus("JSON copiado en formato canonico.");
+        }
     } catch (error) {
         console.error(error);
         setStatus("No se pudo copiar el JSON.", true);
