@@ -29,7 +29,7 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 14px;
+    gap: 22px;
 }
 
 .admin-title {
@@ -151,13 +151,13 @@ textarea::placeholder {
 .dynamic-form-root {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
 }
 
 .json-object {
     border: 1px solid rgba(184, 155, 94, 0.24);
     border-radius: 8px;
-    padding: 12px;
+    padding: 14px;
     background: rgba(5, 11, 20, 0.36);
 }
 
@@ -175,17 +175,22 @@ textarea::placeholder {
 .object-fields {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 14px;
 }
 
 .object-field-wrap {
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 6px;
-    padding: 10px;
+    padding: 12px;
     background: rgba(10, 19, 31, 0.55);
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
+}
+
+.object-field-wrap > .json-object,
+.object-field-wrap > .json-array {
+    margin-top: 6px;
 }
 
 .field-row {
@@ -202,8 +207,14 @@ textarea::placeholder {
 .json-array {
     border: 1px solid rgba(184, 155, 94, 0.2);
     border-radius: 6px;
-    padding: 10px;
+    padding: 12px;
     background: rgba(10, 19, 31, 0.45);
+}
+
+.repeatable-array {
+    padding: 14px;
+    border-color: rgba(184, 155, 94, 0.28);
+    background: rgba(9, 18, 30, 0.65);
 }
 
 .json-array-header {
@@ -211,7 +222,7 @@ textarea::placeholder {
     justify-content: space-between;
     align-items: center;
     gap: 8px;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
 }
 
 .array-controls {
@@ -229,14 +240,25 @@ textarea::placeholder {
 .array-items {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
+}
+
+.repeatable-list {
+    gap: 14px;
 }
 
 .array-item-card {
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 6px;
-    padding: 10px;
+    padding: 12px;
     background: #091421;
+}
+
+.repeatable-card {
+    border-color: rgba(184, 155, 94, 0.28);
+    border-radius: 8px;
+    padding: 14px;
+    background: linear-gradient(160deg, rgba(8, 16, 28, 0.95), rgba(11, 24, 39, 0.88));
 }
 
 .array-item-head {
@@ -247,6 +269,37 @@ textarea::placeholder {
     margin-bottom: 8px;
     font-size: 0.82rem;
     color: var(--text-muted);
+}
+
+.repeatable-card-head {
+    margin-bottom: 12px;
+}
+
+.repeatable-card-title {
+    color: #d8c693;
+    font-size: 0.9rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+
+.repeatable-card-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.repeatable-card-body > .json-object {
+    border: none;
+    background: transparent;
+    padding: 0;
+}
+
+.repeatable-card-body > .json-object > legend {
+    display: none;
+}
+
+.repeatable-card-body .object-field-wrap {
+    background: rgba(12, 22, 36, 0.82);
 }
 
 .mini-btn {
@@ -262,6 +315,23 @@ textarea::placeholder {
 .mini-btn:hover {
     background: var(--accent);
     color: #050b14;
+}
+
+.mini-btn-ghost {
+    border-color: rgba(184, 155, 94, 0.55);
+    color: #d6c38e;
+    background: rgba(184, 155, 94, 0.08);
+}
+
+.mini-btn-ghost:hover {
+    background: rgba(184, 155, 94, 0.2);
+    color: #f3e5bf;
+}
+
+.mini-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: grayscale(20%);
 }
 
 .section-remove {
@@ -287,7 +357,12 @@ textarea::placeholder {
 .add-field-controls {
     display: flex;
     gap: 8px;
-    margin-top: 10px;
+    margin-top: 12px;
+}
+
+.editor-textarea {
+    min-height: 120px;
+    line-height: 1.55;
 }
 
 .json-preview {
@@ -328,11 +403,21 @@ textarea::placeholder {
     .add-field-controls {
         flex-direction: column;
     }
+
+    .repeatable-card-head {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .repeatable-card-actions {
+        width: 100%;
+    }
 }
 
 @media (max-width: 700px) {
     .admin-container {
         padding: 20px 12px 28px;
+        gap: 16px;
     }
 
     .admin-title {

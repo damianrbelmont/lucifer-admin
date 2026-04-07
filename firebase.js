@@ -15,6 +15,29 @@ const IMAGE_FOLDER_BY_TYPE = {
     concept: "concepts"
 };
 const RELATION_KEYS = ["characters", "locations", "events", "concepts", "organizations", "related"];
+const REPEATABLE_BLOCK_PATH_CONFIG = {
+    "content.sections": {
+        singularLabel: "Seccion",
+        addButtonLabel: "ANADIR SECCION",
+        idPrefix: "section",
+        autoManageIds: true,
+        ensureIdField: true,
+        defaultFactory: (index) => ({
+            id: `section_${index + 1}`,
+            title: "",
+            text: ""
+        })
+    }
+};
+const REPEATABLE_LABEL_ALIASES = {
+    sections: "Seccion",
+    interpretations: "Interpretacion",
+    principles: "Principio",
+    blocks: "Bloque",
+    entries: "Entrada",
+    items: "Item"
+};
+const REPEATABLE_ARRAY_META_BY_PATH = new Map();
 
 const entryTypeSelect = document.getElementById("entryTypeSelect");
 const loadTemplateBtn = document.getElementById("loadTemplateBtn");
@@ -721,6 +744,172 @@ function getDefaultByKind(kind) {
     return "";
 }
 
+function humanizeToken(value) {
+    const source = (value || "")
+        .toString()
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .replace(/[_-]+/g, " ")
+        .trim()
+        .toLowerCase();
+    if (!source) return "item";
+    return source.charAt(0).toUpperCase() + source.slice(1);
+}
+
+function singularizeToken(value) {
+    const source = (value || "").toString().trim();
+    if (!source) return "item";
+    if (source.endsWith("ies")) return `${source.slice(0, -3)}y`;
+    if (source.endsWith("ses")) return source.slice(0, -2);
+    if (source.endsWith("s") && source.length > 1) return source.slice(0, -1);
+    return source;
+}
+
+function getRepeatableItemLabel(key, path) {
+    const leaf = ((path && path[path.length - 1]) || key || "item").toString().toLowerCase();
+    if (REPEATABLE_LABEL_ALIASES[leaf]) return REPEATABLE_LABEL_ALIASES[leaf];
+    return humanizeToken(singularizeToken(leaf));
+}
+
+function getFirstObjectFromArray(arrayValue) {
+    return (arrayValue || []).find((item) => isPlainObject(item)) || null;
+}
+
+function cloneDefaultValue(value) {
+    if (Array.isArray(value)) return [];
+    if (isPlainObject(value)) {
+        const next = {};
+        Object.entries(value).forEach(([key, nested]) => {
+            next[key] = cloneDefaultValue(nested);
+        });
+        return next;
+    }
+    if (typeof value === "number") return 0;
+    if (typeof value === "boolean") return false;
+    return "";
+}
+
+function createDefaultRepeatableItem(arrayValue, config) {
+    if (config && typeof config.defaultFactory === "function") {
+        return config.defaultFactory(arrayValue.length);
+    }
+
+    const firstObject = getFirstObjectFromArray(arrayValue);
+    if (firstObject) return cloneDefaultValue(firstObject);
+    return {};
+}
+
+function isSemicomplexObjectShape(objectValue) {
+    if (!isPlainObject(objectValue)) return false;
+    const keys = Object.keys(objectValue);
+    if (keys.length >= 2) return true;
+    if (keys.length === 0) return false;
+
+    const onlyKey = keys[0].toLowerCase();
+    return ["text", "description", "summary", "content", "body", "view"].some((token) => onlyKey.includes(token));
+}
+
+function getRepeatableBlockConfig(key, arrayValue, path) {
+    const normalizedPath = getNormalizedPath(path);
+    const forcedConfig = REPEATABLE_BLOCK_PATH_CONFIG[normalizedPath];
+
+    if (forcedConfig) {
+        const singularLabel = forcedConfig.singularLabel || getRepeatableItemLabel(key, path);
+        return {
+            ...forcedConfig,
+            path: normalizedPath,
+            singularLabel,
+            addButtonLabel: forcedConfig.addButtonLabel || `ANADIR ${singularLabel.toUpperCase()}`
+        };
+    }
+
+    const cachedConfig = REPEATABLE_ARRAY_META_BY_PATH.get(normalizedPath);
+    if (cachedConfig) {
+        const hasItems = Array.isArray(arrayValue) && arrayValue.length > 0;
+        const hasOnlyObjects = hasItems ? arrayValue.every((item) => isPlainObject(item)) : true;
+        if (hasOnlyObjects) {
+            return {
+                ...cachedConfig,
+                path: normalizedPath
+            };
+        }
+        REPEATABLE_ARRAY_META_BY_PATH.delete(normalizedPath);
+    }
+
+    if (!Array.isArray(arrayValue) || arrayValue.length === 0) return null;
+    const everyItemObject = arrayValue.every((item) => isPlainObject(item));
+    if (!everyItemObject) return null;
+
+    const firstObject = getFirstObjectFromArray(arrayValue);
+    if (!isSemicomplexObjectShape(firstObject)) return null;
+
+    const singularLabel = getRepeatableItemLabel(key, path);
+    const firstKeys = Object.keys(firstObject);
+    const hasIdField = firstKeys.includes("id");
+    const idPrefixRaw = singularizeToken((path && path[path.length - 1]) || key || "item").toLowerCase();
+    const idPrefix = slugifyIdentifier(idPrefixRaw || "item");
+
+    const nextConfig = {
+        path: normalizedPath,
+        singularLabel,
+        addButtonLabel: `ANADIR ${singularLabel.toUpperCase()}`,
+        idPrefix: idPrefix || "item",
+        autoManageIds: hasIdField,
+        ensureIdField: false,
+        defaultFactory: () => cloneDefaultValue(firstObject)
+    };
+
+    REPEATABLE_ARRAY_META_BY_PATH.set(normalizedPath, {
+        singularLabel: nextConfig.singularLabel,
+        addButtonLabel: nextConfig.addButtonLabel,
+        idPrefix: nextConfig.idPrefix,
+        autoManageIds: nextConfig.autoManageIds,
+        ensureIdField: nextConfig.ensureIdField,
+        defaultFactory: nextConfig.defaultFactory
+    });
+
+    return nextConfig;
+}
+
+function reindexRepeatableIds(arrayValue, config) {
+    if (!Array.isArray(arrayValue) || !config || !config.autoManageIds) return;
+
+    const hasIdFieldInAnyItem = arrayValue.some((item) => isPlainObject(item) && Object.prototype.hasOwnProperty.call(item, "id"));
+    if (!hasIdFieldInAnyItem && !config.ensureIdField) return;
+
+    const idPrefix = slugifyIdentifier(config.idPrefix || "item") || "item";
+    arrayValue.forEach((item, index) => {
+        if (!isPlainObject(item)) return;
+        if (!hasIdFieldInAnyItem && !config.ensureIdField) return;
+        item.id = `${idPrefix}_${index + 1}`;
+    });
+}
+
+function getRepeatableCardTitle(item, config, index) {
+    const base = `${config.singularLabel || "Bloque"} ${index + 1}`;
+    if (!isPlainObject(item)) return base;
+
+    const preview = cleanString(
+        item.title
+        || item.name
+        || item.label
+        || item.perspective
+        || item.id
+    );
+    if (!preview) return base;
+    return `${base} - ${preview}`;
+}
+
+function getTextareaRows(path, value) {
+    const normalizedPath = getNormalizedPath(path);
+    if (/^content\.sections\.\d+\.text$/.test(normalizedPath)) return 12;
+    if (normalizedPath.endsWith(".text")) return 9;
+    if (normalizedPath.endsWith(".description") || normalizedPath.endsWith(".summary") || normalizedPath.endsWith(".excerpt")) return 8;
+    if (normalizedPath.endsWith(".content") || normalizedPath.endsWith(".body") || normalizedPath.endsWith(".view")) return 8;
+    if (typeof value === "string" && value.length > 600) return 12;
+    if (typeof value === "string" && value.length > 240) return 8;
+    return 5;
+}
+
 function isLongTextField(key, value) {
     if (typeof value !== "string") return false;
     if (isMultilineTextPath(key)) return true;
@@ -771,7 +960,8 @@ function createPrimitiveEditor(key, value, onChange, path) {
 
     if (isLongTextField(path, value)) {
         const textarea = document.createElement("textarea");
-        textarea.rows = 4;
+        textarea.rows = getTextareaRows(path, value);
+        textarea.className = "editor-textarea";
         textarea.value = value ?? "";
         textarea.addEventListener("input", () => onChange(textarea.value, false));
         row.appendChild(textarea);
@@ -794,7 +984,127 @@ function createPrimitiveEditor(key, value, onChange, path) {
     return row;
 }
 
-function createArrayEditor(key, arrayValue, onChange, path) {
+function createRepeatableBlockArrayEditor(key, arrayValue, onChange, path, config) {
+    const box = document.createElement("div");
+    box.className = "json-array repeatable-array";
+
+    reindexRepeatableIds(arrayValue, config);
+
+    const header = document.createElement("div");
+    header.className = "json-array-header repeatable-array-header";
+
+    const title = document.createElement("p");
+    title.className = "json-block-title";
+    title.textContent = `${key} [bloques]`;
+    header.appendChild(title);
+
+    const controls = document.createElement("div");
+    controls.className = "array-controls";
+
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "mini-btn";
+    addButton.textContent = config.addButtonLabel || "ANADIR BLOQUE";
+    addButton.addEventListener("click", () => {
+        const nextItem = createDefaultRepeatableItem(arrayValue, config);
+        arrayValue.push(nextItem);
+        reindexRepeatableIds(arrayValue, config);
+        onChange(arrayValue, true);
+    });
+    controls.appendChild(addButton);
+
+    header.appendChild(controls);
+    box.appendChild(header);
+
+    const list = document.createElement("div");
+    list.className = "array-items repeatable-list";
+
+    arrayValue.forEach((item, index) => {
+        const itemCard = document.createElement("div");
+        itemCard.className = "array-item-card repeatable-card";
+
+        const itemHead = document.createElement("div");
+        itemHead.className = "array-item-head repeatable-card-head";
+
+        const itemLabel = document.createElement("span");
+        itemLabel.className = "repeatable-card-title";
+        itemLabel.textContent = getRepeatableCardTitle(item, config, index);
+        itemHead.appendChild(itemLabel);
+
+        const actionWrap = document.createElement("div");
+        actionWrap.className = "repeatable-card-actions";
+
+        const moveUpButton = document.createElement("button");
+        moveUpButton.type = "button";
+        moveUpButton.className = "mini-btn mini-btn-ghost";
+        moveUpButton.textContent = "SUBIR";
+        moveUpButton.disabled = index === 0;
+        moveUpButton.addEventListener("click", () => {
+            if (index === 0) return;
+            const temp = arrayValue[index - 1];
+            arrayValue[index - 1] = arrayValue[index];
+            arrayValue[index] = temp;
+            reindexRepeatableIds(arrayValue, config);
+            onChange(arrayValue, true);
+        });
+        actionWrap.appendChild(moveUpButton);
+
+        const moveDownButton = document.createElement("button");
+        moveDownButton.type = "button";
+        moveDownButton.className = "mini-btn mini-btn-ghost";
+        moveDownButton.textContent = "BAJAR";
+        moveDownButton.disabled = index === arrayValue.length - 1;
+        moveDownButton.addEventListener("click", () => {
+            if (index >= arrayValue.length - 1) return;
+            const temp = arrayValue[index + 1];
+            arrayValue[index + 1] = arrayValue[index];
+            arrayValue[index] = temp;
+            reindexRepeatableIds(arrayValue, config);
+            onChange(arrayValue, true);
+        });
+        actionWrap.appendChild(moveDownButton);
+
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "section-remove";
+        removeButton.textContent = "ELIMINAR";
+        removeButton.title = "Eliminar bloque";
+        removeButton.addEventListener("click", () => {
+            arrayValue.splice(index, 1);
+            reindexRepeatableIds(arrayValue, config);
+            onChange(arrayValue, true);
+        });
+        actionWrap.appendChild(removeButton);
+
+        itemHead.appendChild(actionWrap);
+        itemCard.appendChild(itemHead);
+
+        const itemBody = document.createElement("div");
+        itemBody.className = "repeatable-card-body";
+
+        const childEditor = createValueEditor(
+            `[${index}]`,
+            item,
+            (nextValue, shouldRerender) => {
+                arrayValue[index] = nextValue;
+                if (shouldRerender) {
+                    reindexRepeatableIds(arrayValue, config);
+                }
+                onChange(arrayValue, shouldRerender);
+            },
+            [...path, String(index)]
+        );
+
+        itemBody.appendChild(childEditor);
+        itemCard.appendChild(itemBody);
+        list.appendChild(itemCard);
+    });
+
+    box.appendChild(list);
+    return box;
+}
+
+function createGenericArrayEditor(key, arrayValue, onChange, path) {
     const box = document.createElement("div");
     box.className = "json-array";
 
@@ -877,6 +1187,14 @@ function createArrayEditor(key, arrayValue, onChange, path) {
 
     box.appendChild(list);
     return box;
+}
+
+function createArrayEditor(key, arrayValue, onChange, path) {
+    const repeatableConfig = getRepeatableBlockConfig(key, arrayValue, path);
+    if (repeatableConfig) {
+        return createRepeatableBlockArrayEditor(key, arrayValue, onChange, path, repeatableConfig);
+    }
+    return createGenericArrayEditor(key, arrayValue, onChange, path);
 }
 
 function createObjectEditor(key, objectValue, onChange, path) {
