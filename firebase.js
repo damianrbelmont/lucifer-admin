@@ -1,3 +1,21 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import {
+    getAuth,
+    GoogleAuthProvider,
+    onAuthStateChanged,
+    signInWithPopup,
+    signOut
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import {
+    collection,
+    deleteDoc,
+    doc,
+    getDoc,
+    getFirestore,
+    runTransaction,
+    setDoc
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
 const TEMPLATE_BASE_URL = "https://damianrbelmont.github.io/lore/lucifer/templates/json/";
 
 const TEMPLATE_URLS = {
@@ -40,6 +58,26 @@ const REPEATABLE_LABEL_ALIASES = {
 };
 const REPEATABLE_ARRAY_META_BY_PATH = new Map();
 
+const firebaseConfig = window.LUCIFER_ADMIN_FIREBASE_CONFIG || {
+    apiKey: "AIzaSyAALd99tyT-ILov22m1G58iforA3f-E628",
+    authDomain: "nimroel-wiki.firebaseapp.com",
+    projectId: "nimroel-wiki",
+    storageBucket: "nimroel-wiki.firebasestorage.app",
+    messagingSenderId: "499128220480",
+    appId: "1:499128220480:web:e1da6cf1a6f306cd0458a5"
+};
+
+const ADMIN_UID = window.LUCIFER_ADMIN_UID || "ofe3AaZtvwd7KxY8MqG4182BZpo2";
+const ADMIN_EMAIL = window.LUCIFER_ADMIN_EMAIL || "damianr.belmont@gmail.com";
+const FIRESTORE_ITEMS_COLLECTION = window.LUCIFER_ITEMS_COLLECTION || "lucifer_items";
+const FIRESTORE_INDEX_DOCUMENT = window.LUCIFER_INDEX_DOCUMENT || "meta_lucifer/index";
+
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+const db = getFirestore(firebaseApp);
+const provider = new GoogleAuthProvider();
+provider.setCustomParameters({ prompt: "select_account" });
+
 const entryTypeSelect = document.getElementById("entryTypeSelect");
 const loadTemplateBtn = document.getElementById("loadTemplateBtn");
 const resetTemplateBtn = document.getElementById("resetTemplateBtn");
@@ -59,11 +97,22 @@ const copyIndexSnippetBtn = document.getElementById("copyIndexSnippetBtn");
 const downloadIndexSnippetBtn = document.getElementById("downloadIndexSnippetBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 
+const firebaseAuthStatus = document.getElementById("firebaseAuthStatus");
+const firebaseLoginBtn = document.getElementById("firebaseLoginBtn");
+const firebaseEntryIdInput = document.getElementById("firebaseEntryIdInput");
+const firebaseLoadBtn = document.getElementById("firebaseLoadBtn");
+const firebaseCreateBtn = document.getElementById("firebaseCreateBtn");
+const firebaseOverwriteBtn = document.getElementById("firebaseOverwriteBtn");
+const firebaseDeleteBtn = document.getElementById("firebaseDeleteBtn");
+const firebaseActionStatus = document.getElementById("firebaseActionStatus");
+
 const state = {
     currentType: "character",
     templateCache: new Map(),
     baseTemplate: null,
-    workingData: null
+    workingData: null,
+    isAuthorized: false,
+    loadedFirebaseId: ""
 };
 
 function setStatus(message, isError = false) {
@@ -81,6 +130,91 @@ function setNormalizationStatus(message, isWarning = false) {
     if (!normalizationStatus) return;
     normalizationStatus.textContent = message;
     normalizationStatus.style.color = isWarning ? "#e6c98f" : "";
+}
+
+function setFirebaseStatus(message, isError = false) {
+    if (!firebaseActionStatus) return;
+    firebaseActionStatus.textContent = message;
+    firebaseActionStatus.style.color = isError ? "#ff8b8b" : "";
+}
+
+function setFirebaseAuthStatus(message, isError = false) {
+    if (!firebaseAuthStatus) return;
+    firebaseAuthStatus.textContent = message;
+    firebaseAuthStatus.style.color = isError ? "#ff8b8b" : "";
+}
+
+function getPathSegments(pathValue) {
+    return (pathValue || "")
+        .toString()
+        .split("/")
+        .map((segment) => segment.trim())
+        .filter(Boolean);
+}
+
+function getItemsCollectionRef() {
+    const segments = getPathSegments(FIRESTORE_ITEMS_COLLECTION);
+    if (segments.length === 0) {
+        throw new Error("FIRESTORE_ITEMS_COLLECTION está vacío.");
+    }
+    return collection(db, ...segments);
+}
+
+function getItemDocRef(id) {
+    const cleanId = cleanString(id);
+    if (!cleanId) {
+        throw new Error("ID vacío para documento de Firebase.");
+    }
+    return doc(getItemsCollectionRef(), cleanId);
+}
+
+function getIndexDocRef() {
+    const segments = getPathSegments(FIRESTORE_INDEX_DOCUMENT);
+    if (segments.length < 2 || segments.length % 2 !== 0) {
+        throw new Error("FIRESTORE_INDEX_DOCUMENT debe tener formato collection/doc.");
+    }
+    return doc(db, ...segments);
+}
+
+function isCurrentUserAuthorized(user) {
+    if (!user) return false;
+    const normalizedEmail = (user.email || "").toLowerCase();
+    return user.uid === ADMIN_UID && normalizedEmail === ADMIN_EMAIL;
+}
+
+function setAuthButtonMode(mode) {
+    if (!firebaseLoginBtn) return;
+    firebaseLoginBtn.dataset.mode = mode;
+    firebaseLoginBtn.textContent = mode === "logout" ? "CERRAR SESION FIREBASE" : "INICIAR SESION FIREBASE";
+    firebaseLoginBtn.disabled = false;
+}
+
+function setFirebaseControlsEnabled(enabled) {
+    [
+        firebaseEntryIdInput,
+        firebaseLoadBtn,
+        firebaseCreateBtn,
+        firebaseOverwriteBtn,
+        firebaseDeleteBtn
+    ].forEach((el) => {
+        if (!el) return;
+        el.disabled = !enabled;
+    });
+}
+
+function ensureAuthorized() {
+    const ok = state.isAuthorized && isCurrentUserAuthorized(auth.currentUser);
+    if (!ok) {
+        setFirebaseStatus("Debes iniciar sesión con la cuenta autorizada.", true);
+    }
+    return ok;
+}
+
+function setLoadedFirebaseId(id) {
+    state.loadedFirebaseId = cleanString(id);
+    if (firebaseEntryIdInput) {
+        firebaseEntryIdInput.value = state.loadedFirebaseId;
+    }
 }
 
 function pushCorrection(corrections, message) {
@@ -709,7 +843,8 @@ function buildIndexSnippet(payload) {
     const image = resolveSnippetImage(payload);
     const status = normalizePublicationStatus(payload?.publication?.status);
     const visibility = normalizePublicationVisibility(payload?.publication?.visibility);
-    const path = `${section}/${id}.json`;
+    const fallbackFolder = section || (type ? `${type}s` : "misc");
+    const path = `${fallbackFolder}/${id}.json`;
 
     return {
         id,
@@ -724,6 +859,47 @@ function buildIndexSnippet(payload) {
         status,
         visibility
     };
+}
+
+function normalizeLuciferIndexData(data) {
+    const entries = Array.isArray(data?.entries) ? data.entries : [];
+    const normalized = entries
+        .filter((entry) => entry && typeof entry === "object")
+        .map((entry) => buildIndexSnippet(entry))
+        .filter((entry) => cleanString(entry.id));
+    return { entries: normalized };
+}
+
+function mergeIndexEntry(indexEntries, nextSnippet) {
+    const nextId = cleanString(nextSnippet.id);
+    const filtered = indexEntries.filter((entry) => cleanString(entry.id) !== nextId);
+    filtered.push(nextSnippet);
+    filtered.sort((a, b) => cleanString(a.title).localeCompare(cleanString(b.title), "es", { sensitivity: "base" }));
+    return filtered;
+}
+
+async function upsertIndexSnippetInFirebase(snippet) {
+    const indexDocRef = getIndexDocRef();
+    await runTransaction(db, async (transaction) => {
+        const indexSnap = await transaction.get(indexDocRef);
+        const rawData = indexSnap.exists() ? (indexSnap.data() || {}) : {};
+        const current = normalizeLuciferIndexData(rawData);
+        const mergedEntries = mergeIndexEntry(current.entries, snippet);
+        transaction.set(indexDocRef, { ...rawData, entries: mergedEntries });
+    });
+}
+
+async function removeIndexSnippetInFirebase(id) {
+    const cleanId = cleanString(id);
+    const indexDocRef = getIndexDocRef();
+    await runTransaction(db, async (transaction) => {
+        const indexSnap = await transaction.get(indexDocRef);
+        if (!indexSnap.exists()) return;
+        const rawData = indexSnap.data() || {};
+        const current = normalizeLuciferIndexData(rawData);
+        const nextEntries = current.entries.filter((entry) => cleanString(entry.id) !== cleanId);
+        transaction.set(indexDocRef, { ...rawData, entries: nextEntries });
+    });
 }
 
 function getIndexSnippetMissingFields(snippet) {
@@ -1585,6 +1761,164 @@ function exportPdf() {
     pdf.save(fileName);
 }
 
+async function applyPayloadToEditor(payload) {
+    if (!isPlainObject(payload)) return;
+    const detectedType = normalizeEntryType(payload.type) || state.currentType;
+    const canonicalTemplate = await fetchTemplate(detectedType, false);
+    state.baseTemplate = deepClone(canonicalTemplate);
+    state.currentType = detectedType;
+    entryTypeSelect.value = detectedType;
+    templateSource.textContent = `Fuente: ${TEMPLATE_URLS[detectedType]}`;
+
+    const mergedPayload = mergeTemplateWithImported(canonicalTemplate, payload);
+    mergedPayload.type = detectedType;
+    state.workingData = normalizeImageFieldsForEditor(mergedPayload, detectedType);
+    renderDynamicForm();
+    updatePreview();
+}
+
+async function startGoogleLogin() {
+    if (!firebaseLoginBtn) return;
+    setFirebaseAuthStatus("Abriendo login de Google...");
+    firebaseLoginBtn.disabled = true;
+    try {
+        await signInWithPopup(auth, provider);
+    } catch (error) {
+        console.error("Login error:", error);
+        setFirebaseAuthStatus("No se pudo iniciar sesión.", true);
+    } finally {
+        firebaseLoginBtn.disabled = false;
+    }
+}
+
+async function closeSession() {
+    if (!firebaseLoginBtn) return;
+    setFirebaseAuthStatus("Cerrando sesión...");
+    firebaseLoginBtn.disabled = true;
+    try {
+        await signOut(auth);
+    } catch (error) {
+        console.error("Logout error:", error);
+        setFirebaseAuthStatus("No se pudo cerrar sesión.", true);
+    } finally {
+        firebaseLoginBtn.disabled = false;
+    }
+}
+
+async function loadFromFirebase() {
+    if (!ensureAuthorized()) return;
+    const requestedId = cleanString(firebaseEntryIdInput?.value);
+    if (!requestedId) {
+        setFirebaseStatus("Indica un ID para cargar.", true);
+        return;
+    }
+
+    try {
+        const snap = await getDoc(getItemDocRef(requestedId));
+        if (!snap.exists()) {
+            setFirebaseStatus(`No existe ${FIRESTORE_ITEMS_COLLECTION}/${requestedId}.`, true);
+            return;
+        }
+        const payload = { id: requestedId, ...snap.data() };
+        await applyPayloadToEditor(payload);
+        setLoadedFirebaseId(requestedId);
+        setFirebaseStatus(`Documento cargado desde Firebase: ${requestedId}`);
+    } catch (error) {
+        console.error("Load Firebase error:", error);
+        setFirebaseStatus("Error al cargar desde Firebase.", true);
+    }
+}
+
+async function createInFirebase() {
+    if (!ensureAuthorized()) return;
+    const result = getCurrentNormalizationResult();
+    if (!result) return;
+
+    const payload = result.payload;
+    const id = cleanString(payload.id);
+    if (!id) {
+        setFirebaseStatus("El JSON necesita un campo id.", true);
+        return;
+    }
+
+    try {
+        const itemRef = getItemDocRef(id);
+        const existing = await getDoc(itemRef);
+        if (existing.exists()) {
+            setFirebaseStatus(`El ID ${id} ya existe. Usa sobrescribir.`, true);
+            return;
+        }
+
+        await setDoc(itemRef, payload);
+        await upsertIndexSnippetInFirebase(buildIndexSnippet(payload));
+        setLoadedFirebaseId(id);
+        setFirebaseStatus(`Creado en Firebase y actualizado índice: ${id}`);
+    } catch (error) {
+        console.error("Create Firebase error:", error);
+        setFirebaseStatus("Error al crear en Firebase.", true);
+    }
+}
+
+async function overwriteInFirebase() {
+    if (!ensureAuthorized()) return;
+    const result = getCurrentNormalizationResult();
+    if (!result) return;
+
+    const payload = result.payload;
+    const id = cleanString(payload.id);
+    if (!id) {
+        setFirebaseStatus("El JSON necesita un campo id.", true);
+        return;
+    }
+    if (!state.loadedFirebaseId) {
+        setFirebaseStatus("Primero carga un documento para sobrescribir.", true);
+        return;
+    }
+    if (state.loadedFirebaseId !== id) {
+        setFirebaseStatus("Para sobrescribir, el ID del editor debe coincidir con el cargado.", true);
+        return;
+    }
+
+    try {
+        const itemRef = getItemDocRef(id);
+        const existing = await getDoc(itemRef);
+        if (!existing.exists()) {
+            setFirebaseStatus(`El documento ${id} ya no existe en Firebase.`, true);
+            return;
+        }
+
+        await setDoc(itemRef, payload);
+        await upsertIndexSnippetInFirebase(buildIndexSnippet(payload));
+        setFirebaseStatus(`Cambios guardados en Firebase: ${id}`);
+    } catch (error) {
+        console.error("Overwrite Firebase error:", error);
+        setFirebaseStatus("Error al sobrescribir en Firebase.", true);
+    }
+}
+
+async function deleteFromFirebase() {
+    if (!ensureAuthorized()) return;
+    const id = cleanString(firebaseEntryIdInput?.value || state.loadedFirebaseId);
+    if (!id) {
+        setFirebaseStatus("Indica un ID para eliminar.", true);
+        return;
+    }
+    const confirmed = window.confirm(`Vas a eliminar ${FIRESTORE_ITEMS_COLLECTION}/${id}. ¿Continuar?`);
+    if (!confirmed) return;
+
+    try {
+        await deleteDoc(getItemDocRef(id));
+        await removeIndexSnippetInFirebase(id);
+        if (state.loadedFirebaseId === id) {
+            setLoadedFirebaseId("");
+        }
+        setFirebaseStatus(`Documento eliminado y desindexado: ${id}`);
+    } catch (error) {
+        console.error("Delete Firebase error:", error);
+        setFirebaseStatus("Error al eliminar en Firebase.", true);
+    }
+}
+
 loadTemplateBtn.addEventListener("click", async () => {
     await loadTemplateForType(entryTypeSelect.value, true);
 });
@@ -1616,6 +1950,55 @@ copyJsonBtn.addEventListener("click", copyJsonToClipboard);
 copyIndexSnippetBtn.addEventListener("click", copyIndexSnippetToClipboard);
 downloadIndexSnippetBtn.addEventListener("click", downloadIndexSnippet);
 downloadPdfBtn.addEventListener("click", exportPdf);
+
+if (firebaseLoginBtn) {
+    firebaseLoginBtn.addEventListener("click", async () => {
+        if (firebaseLoginBtn.dataset.mode === "logout") {
+            await closeSession();
+            return;
+        }
+        await startGoogleLogin();
+    });
+}
+
+if (firebaseLoadBtn) {
+    firebaseLoadBtn.addEventListener("click", loadFromFirebase);
+}
+if (firebaseCreateBtn) {
+    firebaseCreateBtn.addEventListener("click", createInFirebase);
+}
+if (firebaseOverwriteBtn) {
+    firebaseOverwriteBtn.addEventListener("click", overwriteInFirebase);
+}
+if (firebaseDeleteBtn) {
+    firebaseDeleteBtn.addEventListener("click", deleteFromFirebase);
+}
+
+setFirebaseControlsEnabled(false);
+setAuthButtonMode("login");
+setFirebaseAuthStatus("Debes iniciar sesión para usar Firebase.");
+setFirebaseStatus("Sin conexión activa a Firebase.");
+
+onAuthStateChanged(auth, (user) => {
+    const authorized = isCurrentUserAuthorized(user);
+    state.isAuthorized = authorized;
+    setFirebaseControlsEnabled(authorized);
+
+    if (!user) {
+        setAuthButtonMode("login");
+        setFirebaseAuthStatus("Debes iniciar sesión para usar Firebase.");
+        return;
+    }
+
+    if (!authorized) {
+        setAuthButtonMode("login");
+        setFirebaseAuthStatus("Cuenta no autorizada para este admin.", true);
+        return;
+    }
+
+    setAuthButtonMode("logout");
+    setFirebaseAuthStatus(`Autenticado como ${user.email}`);
+});
 
 loadTemplateForType(state.currentType).catch((error) => {
     console.error(error);

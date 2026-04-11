@@ -12,6 +12,21 @@
     <main class="admin-container">
         <h1 class="admin-title">LUCIFER ADMIN</h1>
 
+        <div class="auth-box">
+            <p id="firebaseAuthStatus" class="auth-status">Debes iniciar sesión para usar Firebase.</p>
+            <button id="firebaseLoginBtn" type="button">INICIAR SESION FIREBASE</button>
+        </div>
+
+        <section class="admin-box admin-section">
+            <h2 class="section-title">Persistencia Firebase (Lucifer)</h2>
+            <input id="firebaseEntryIdInput" type="text" placeholder="ID de entrada (ej: valak)">
+            <button id="firebaseLoadBtn" class="action-btn action-btn-secondary" type="button">CARGAR DESDE FIREBASE</button>
+            <button id="firebaseCreateBtn" class="action-btn" type="button">CREAR EN FIREBASE</button>
+            <button id="firebaseOverwriteBtn" class="action-btn action-btn-secondary" type="button">SOBRESCRIBIR EN FIREBASE</button>
+            <button id="firebaseDeleteBtn" class="action-btn action-btn-danger" type="button">ELIMINAR EN FIREBASE</button>
+            <p id="firebaseActionStatus" class="auth-status">Sin conexión activa a Firebase.</p>
+        </section>
+
         <section class="admin-box admin-section">
             <h2 class="section-title">Plantillas Canonicas (Fuente Remota)</h2>
 
