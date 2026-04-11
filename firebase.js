@@ -25,6 +25,7 @@ const REPEATABLE_BLOCK_PATH_CONFIG = {
         defaultFactory: (index) => ({
             id: `section_${index + 1}`,
             title: "",
+            groupTitle: "",
             text: ""
         })
     }
@@ -222,6 +223,27 @@ function normalizeImageFieldsForEditor(payload, type) {
         next.seo.image = extractImageFileName(next.seo.image);
     }
 
+    if (isPlainObject(next.content) && Array.isArray(next.content.sections)) {
+        next.content.sections = next.content.sections.map((section) => {
+            if (!isPlainObject(section)) return section;
+
+            const normalizedSection = { ...section };
+            const groupTitle = cleanString(
+                normalizedSection.groupTitle
+                || normalizedSection.group
+                || normalizedSection.sectionGroupTitle
+                || normalizedSection.section_group_title
+                || normalizedSection.group_title
+            );
+
+            if (!Object.prototype.hasOwnProperty.call(normalizedSection, "groupTitle")) {
+                normalizedSection.groupTitle = groupTitle;
+            }
+
+            return normalizedSection;
+        });
+    }
+
     return next;
 }
 
@@ -289,6 +311,7 @@ function toParagraphText(value) {
 function normalizeSectionItem(rawSection, index, fallbackTitle = "", corrections = []) {
     let id = "";
     let title = "";
+    let groupTitle = "";
     let text = "";
 
     if (typeof rawSection === "string" || typeof rawSection === "number" || typeof rawSection === "boolean") {
@@ -301,11 +324,18 @@ function normalizeSectionItem(rawSection, index, fallbackTitle = "", corrections
     } else if (isPlainObject(rawSection)) {
         id = cleanString(rawSection.id || rawSection.slug);
         title = cleanString(rawSection.title || rawSection.tittle || rawSection.heading || rawSection.name || fallbackTitle);
+        groupTitle = cleanString(
+            rawSection.groupTitle
+            || rawSection.group
+            || rawSection.sectionGroupTitle
+            || rawSection.section_group_title
+            || rawSection.group_title
+        );
         text = toParagraphText(rawSection.text ?? rawSection.description ?? rawSection.body ?? rawSection.content ?? rawSection.value ?? "");
 
         if (!text) {
             const looseValues = Object.entries(rawSection)
-                .filter(([key]) => !["id", "slug", "title", "tittle", "heading", "name", "text", "description", "body", "content", "value", "order"].includes(key))
+                .filter(([key]) => !["id", "slug", "title", "tittle", "heading", "name", "groupTitle", "group", "sectionGroupTitle", "section_group_title", "group_title", "text", "description", "body", "content", "value", "order"].includes(key))
                 .map(([, value]) => toParagraphText(value))
                 .filter(Boolean);
             if (looseValues.length > 0) {
@@ -323,6 +353,7 @@ function normalizeSectionItem(rawSection, index, fallbackTitle = "", corrections
     return {
         id,
         title,
+        groupTitle,
         text
     };
 }
@@ -373,11 +404,16 @@ function normalizeContentForExport(contentValue, corrections = []) {
             suffix += 1;
         }
         usedIds.add(nextId);
-        return {
+        const normalizedGroupTitle = cleanString(section.groupTitle);
+        const canonicalSection = {
             id: nextId,
             title: cleanString(section.title) || `Seccion ${index + 1}`,
             text: normalizeTextValue(section.text, true)
         };
+        if (normalizedGroupTitle) {
+            canonicalSection.groupTitle = normalizedGroupTitle;
+        }
+        return canonicalSection;
     }).filter((section) => cleanString(section.text));
 
     return {
@@ -888,6 +924,13 @@ function getRepeatableCardTitle(item, config, index) {
     const base = `${config.singularLabel || "Bloque"} ${index + 1}`;
     if (!isPlainObject(item)) return base;
 
+    const groupPreview = cleanString(
+        item.groupTitle
+        || item.group
+        || item.sectionGroupTitle
+        || item.section_group_title
+        || item.group_title
+    );
     const preview = cleanString(
         item.title
         || item.name
@@ -895,6 +938,8 @@ function getRepeatableCardTitle(item, config, index) {
         || item.perspective
         || item.id
     );
+    if (groupPreview && preview) return `${base} - ${groupPreview} / ${preview}`;
+    if (groupPreview) return `${base} - ${groupPreview}`;
     if (!preview) return base;
     return `${base} - ${preview}`;
 }
