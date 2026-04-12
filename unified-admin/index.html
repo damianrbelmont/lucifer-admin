@@ -1,0 +1,201 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wiki Admin Unificado</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="admin-container">
+    <h1 class="admin-title">WIKI ADMIN UNIFICADO</h1>
+
+    <section class="admin-box admin-section header-grid">
+      <div>
+        <label class="field-label" for="wikiSelect">Wiki</label>
+        <select id="wikiSelect">
+          <option value="lucifer">Lucifer</option>
+          <option value="nimroel">Nimroel</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label" for="typeSelect">Tipo</label>
+        <select id="typeSelect"></select>
+      </div>
+      <div class="header-actions">
+        <button id="newFromTemplateBtn" class="action-btn action-btn-secondary" type="button">NUEVO DESDE PLANTILLA</button>
+        <button id="reloadTemplateBtn" class="action-btn action-btn-secondary" type="button">RECARGAR PLANTILLA</button>
+      </div>
+      <p id="templateStatus" class="status-line">Listo.</p>
+    </section>
+
+    <section class="admin-box admin-section auth-grid">
+      <p id="authStatus" class="status-line">Debes iniciar sesion para continuar.</p>
+      <button id="authBtn" type="button">INICIAR SESION FIREBASE</button>
+    </section>
+
+    <section class="admin-box admin-section">
+      <h2 class="section-title">A. Documento</h2>
+      <div class="form-grid two-cols">
+        <div>
+          <label class="field-label" for="docId">ID</label>
+          <input id="docId" type="text" placeholder="kazan_rise">
+        </div>
+        <div>
+          <label class="field-label" for="docSlug">Slug</label>
+          <input id="docSlug" type="text" placeholder="kazan-rise">
+        </div>
+        <div class="full-col">
+          <label class="field-label" for="docName">Name / Title</label>
+          <input id="docName" type="text" placeholder="Kazan Rise">
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-box admin-section">
+      <h2 class="section-title">B. SEO y Portada</h2>
+      <div class="form-grid two-cols">
+        <div class="full-col">
+          <label class="field-label" for="seoTitle">Meta Title</label>
+          <input id="seoTitle" type="text" placeholder="Titulo SEO">
+        </div>
+        <div class="full-col">
+          <label class="field-label" for="seoDescription">Meta Description</label>
+          <textarea id="seoDescription" rows="4" placeholder="Descripcion SEO"></textarea>
+        </div>
+        <div class="full-col">
+          <label class="field-label" for="coverImage">Image</label>
+          <input id="coverImage" type="text" placeholder="assets/images/...">
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-box admin-section">
+      <h2 class="section-title">C. Resumen</h2>
+      <textarea id="summaryField" rows="6" placeholder="Resumen principal"></textarea>
+    </section>
+
+    <section class="admin-box admin-section">
+      <h2 class="section-title">D. Contenido Principal (Grupos y Secciones)</h2>
+      <div class="sections-toolbar">
+        <button id="addUngroupedSectionBtn" class="mini-btn" type="button">ANADIR SECCION SIN GRUPO</button>
+        <button id="addGroupBtn" class="mini-btn" type="button">ANADIR GRUPO</button>
+      </div>
+
+      <div class="group-card" id="ungroupedCard">
+        <div class="group-header">
+          <h3>Secciones sin grupo</h3>
+        </div>
+        <div id="ungroupedSections" class="sections-stack"></div>
+      </div>
+
+      <div id="groupsContainer" class="groups-stack"></div>
+    </section>
+
+    <section class="admin-box admin-section">
+      <h2 class="section-title">E. Relaciones y Etiquetas</h2>
+      <div class="form-grid two-cols">
+        <div>
+          <label class="field-label" for="aliasField">Alias (linea o coma)</label>
+          <textarea id="aliasField" rows="3"></textarea>
+        </div>
+        <div>
+          <label class="field-label" for="tagsField">Tags (linea o coma)</label>
+          <textarea id="tagsField" rows="3"></textarea>
+        </div>
+        <div>
+          <label class="field-label" for="relCharacters">Relations.characters</label>
+          <textarea id="relCharacters" rows="3"></textarea>
+        </div>
+        <div>
+          <label class="field-label" for="relLocations">Relations.locations</label>
+          <textarea id="relLocations" rows="3"></textarea>
+        </div>
+        <div>
+          <label class="field-label" for="relOrganizations">Relations.organizations</label>
+          <textarea id="relOrganizations" rows="3"></textarea>
+        </div>
+        <div>
+          <label class="field-label" for="relEvents">Relations.events</label>
+          <textarea id="relEvents" rows="3"></textarea>
+        </div>
+        <div>
+          <label class="field-label" for="relConcepts">Relations.concepts</label>
+          <textarea id="relConcepts" rows="3"></textarea>
+        </div>
+        <div>
+          <label class="field-label" for="relArtifacts">Relations.artifacts</label>
+          <textarea id="relArtifacts" rows="3"></textarea>
+        </div>
+        <div>
+          <label class="field-label" for="relCreatures">Relations.creatures</label>
+          <textarea id="relCreatures" rows="3"></textarea>
+        </div>
+        <div>
+          <label class="field-label" for="relRelated">Relations.related</label>
+          <textarea id="relRelated" rows="3"></textarea>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-box admin-section">
+      <h2 class="section-title">F. Datos Extra</h2>
+      <div class="form-grid two-cols">
+        <div>
+          <label class="field-label" for="extraRace">Race</label>
+          <input id="extraRace" type="text">
+        </div>
+        <div>
+          <label class="field-label" for="extraBirth">Birth</label>
+          <input id="extraBirth" type="text">
+        </div>
+        <div>
+          <label class="field-label" for="extraDeath">Death</label>
+          <input id="extraDeath" type="text">
+        </div>
+        <div>
+          <label class="field-label" for="extraAffiliation">Affiliation (linea o coma)</label>
+          <textarea id="extraAffiliation" rows="3"></textarea>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-box admin-section">
+      <h2 class="section-title">G. Acciones Firebase</h2>
+      <div class="form-grid two-cols">
+        <div>
+          <label class="field-label" for="firebaseTargetId">ID para cargar</label>
+          <input id="firebaseTargetId" type="text" placeholder="valak">
+        </div>
+      </div>
+      <div class="actions-row">
+        <button id="loadBtn" class="action-btn action-btn-secondary" type="button">CARGAR DESDE FIREBASE</button>
+        <button id="createBtn" class="action-btn" type="button">CREAR DOCUMENTO</button>
+        <button id="saveBtn" class="action-btn action-btn-secondary" type="button">GUARDAR CAMBIOS</button>
+        <button id="deleteBtn" class="action-btn action-btn-danger" type="button">ELIMINAR</button>
+        <button id="downloadBtn" class="action-btn action-btn-secondary" type="button">DESCARGAR JSON</button>
+      </div>
+      <p id="actionStatus" class="status-line">Sin operaciones.</p>
+      <p id="loadedInfo" class="status-line muted">Ningun documento cargado.</p>
+    </section>
+
+    <section class="admin-box admin-section">
+      <details>
+        <summary class="advanced-title">Modo avanzado (JSON completo)</summary>
+        <div class="advanced-tools">
+          <button id="applyAdvancedBtn" class="mini-btn" type="button">APLICAR JSON AVANZADO</button>
+          <button id="formatAdvancedBtn" class="mini-btn" type="button">FORMATEAR JSON</button>
+        </div>
+        <textarea id="advancedJson" rows="16" class="advanced-json"></textarea>
+      </details>
+    </section>
+
+    <section class="admin-box admin-section">
+      <h2 class="section-title">Vista Previa JSON</h2>
+      <pre id="jsonPreview" class="json-preview">{}</pre>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
