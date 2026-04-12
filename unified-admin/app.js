@@ -1,4 +1,4 @@
-﻿import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { collection, deleteDoc, doc, getDoc, getFirestore, runTransaction, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
@@ -46,7 +46,7 @@ const db = getFirestore(app);
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
 
-const ids = ["wikiSelect", "typeSelect", "newFromTemplateBtn", "reloadTemplateBtn", "templateStatus", "authStatus", "authBtn", "docId", "docSlug", "docName", "seoTitle", "seoDescription", "coverImage", "summaryField", "addUngroupedSectionBtn", "addGroupBtn", "ungroupedSections", "groupsContainer", "aliasField", "tagsField", "relCharacters", "relLocations", "relOrganizations", "relEvents", "relConcepts", "relArtifacts", "relCreatures", "relRelated", "extraRace", "extraBirth", "extraDeath", "extraAffiliation", "firebaseTargetId", "loadBtn", "createBtn", "saveBtn", "deleteBtn", "downloadBtn", "actionStatus", "loadedInfo", "applyAdvancedBtn", "formatAdvancedBtn", "advancedJson", "jsonPreview"];
+const ids = ["wikiSelect", "typeSelect", "newFromTemplateBtn", "reloadTemplateBtn", "templateStatus", "authStatus", "authBtn", "docId", "docSlug", "docSection", "docName", "seoTitle", "seoDescription", "coverImage", "summaryField", "addUngroupedSectionBtn", "addGroupBtn", "ungroupedSections", "groupsContainer", "aliasField", "tagsField", "relCharacters", "relLocations", "relOrganizations", "relEvents", "relConcepts", "relArtifacts", "relCreatures", "relRelated", "extraRace", "extraBirth", "extraDeath", "extraAffiliation", "firebaseTargetId", "loadBtn", "createBtn", "saveBtn", "deleteBtn", "downloadBtn", "actionStatus", "loadedInfo", "applyAdvancedBtn", "formatAdvancedBtn", "advancedJson", "jsonPreview"];
 const els = {};
 ids.forEach((id) => { els[id] = document.getElementById(id); });
 
@@ -59,6 +59,20 @@ function multi(v) { return (v ?? "").toString().replace(/\r\n?/g, "\n").replace(
 function parseList(v) { return [...new Set(multi(v).split(/[\n,]/).map((x) => x.trim()).filter(Boolean))]; }
 function listText(v) { return Array.isArray(v) ? v.map((x) => clean(x)).filter(Boolean).join("\n") : ""; }
 function safeName(v) { const s = clean(v).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, ""); return s || "entry"; }
+function normalizeLuciferSection(value) {
+    const normalized = clean(value).toLowerCase();
+    const alias = {
+        cielo: "cielo",
+        celestial: "cielo",
+        infierno: "infierno",
+        infernal: "infierno",
+        eventos: "eventos",
+        events: "eventos",
+        cosmologia: "cosmologia",
+        cosmogonia: "cosmologia"
+    };
+    return alias[normalized] || "";
+}
 
 function setStatus(el, msg, error = false) { el.textContent = msg; el.style.color = error ? "#ff8b8b" : ""; }
 function getErrorMessage(error) {
@@ -89,6 +103,7 @@ function applyVisibility() {
     const c = cfg();
     const t = clean(els.typeSelect.value).toLowerCase();
     const aliasVisible = c.key === "lucifer" ? c.supportsAlias : c.supportsAliasByType.has(t);
+    setControlVisible("docSection", c.key === "lucifer");
     setControlVisible("aliasField", aliasVisible);
     setControlVisible("tagsField", !!c.supportsTags);
     ALL_RELATION_KEYS.forEach((k) => setControlVisible(RELATION_FIELD_BY_KEY[k], c.relationKeys.includes(k)));
@@ -96,6 +111,20 @@ function applyVisibility() {
     setControlVisible("extraBirth", c.key === "nimroel" && t === "character");
     setControlVisible("extraDeath", c.key === "nimroel" && t === "character");
     setControlVisible("extraAffiliation", c.key === "nimroel" && (t === "character" || t === "organization"));
+}
+
+function getLuciferSectionFromPayload(payload) {
+    const direct = normalizeLuciferSection(payload?.section);
+    if (direct) return direct;
+
+    const explicitPath = clean(payload?.path || payload?.paths?.json);
+    if (explicitPath && explicitPath.includes("/")) {
+        const folder = explicitPath.split("/")[0];
+        const fromPath = normalizeLuciferSection(folder);
+        if (fromPath) return fromPath;
+    }
+
+    return "";
 }
 
 function sectionDraft(initial = {}) {
@@ -315,15 +344,18 @@ function collectSections(strict = false) {
 function buildLuciferPayload(strict = false) {
     const id = clean(els.docId.value);
     const slug = clean(els.docSlug.value);
+    const section = normalizeLuciferSection(els.docSection.value);
     const title = clean(els.docName.value);
     const type = clean(els.typeSelect.value).toLowerCase();
     if (strict && !id) throw new Error("Falta id.");
     if (strict && !slug) throw new Error("Falta slug.");
+    if (strict && !section) throw new Error("Falta section de Lucifer (cielo, infierno, eventos o cosmologia).");
     if (strict && !title) throw new Error("Falta name/title.");
 
     const payload = isObj(state.workingPayload) ? clone(state.workingPayload) : {};
     payload.id = id;
     payload.slug = slug;
+    payload.section = section;
     payload.type = type;
     payload.universe = "lucifer";
     payload.title = title;
@@ -350,7 +382,7 @@ function buildLuciferPayload(strict = false) {
     });
 
     payload.paths = isObj(payload.paths) ? payload.paths : {};
-    const folder = clean(payload.section) || (type ? `${type}s` : "misc");
+    const folder = section || (type ? `${type}s` : "misc");
     if (id) payload.paths.json = `${folder}/${id}.json`;
     if (slug) payload.paths.html = `${slug}.html`;
     if (id) payload.paths.url = `?id=${encodeURIComponent(id)}`;
@@ -440,12 +472,14 @@ function fillForm(payload) {
 
     if (c.key === "lucifer") {
         els.docName.value = clean(payload?.title || payload?.name);
+        els.docSection.value = getLuciferSectionFromPayload(payload);
         els.seoTitle.value = clean(payload?.seo?.title || payload?.title);
         els.seoDescription.value = clean(payload?.seo?.description || payload?.description);
         els.coverImage.value = clean(payload?.image || payload?.seo?.image);
         els.summaryField.value = clean(payload?.content?.summary || payload?.excerpt || payload?.description);
     } else {
         els.docName.value = clean(payload?.name || payload?.title);
+        els.docSection.value = "";
         els.seoTitle.value = clean(payload?.meta?.title || payload?.name);
         els.seoDescription.value = clean(payload?.meta?.description || payload?.description);
         els.coverImage.value = clean(payload?.meta?.image || payload?.image);
@@ -932,6 +966,7 @@ async function switchWiki(nextWiki) {
 function bindPreviewInputs() {
     [els.docId, els.docSlug, els.docName, els.seoTitle, els.seoDescription, els.coverImage, els.summaryField, els.aliasField, els.tagsField, els.relCharacters, els.relLocations, els.relOrganizations, els.relEvents, els.relConcepts, els.relArtifacts, els.relCreatures, els.relRelated, els.extraRace, els.extraBirth, els.extraDeath, els.extraAffiliation]
         .forEach((el) => el.addEventListener("input", refreshPreview));
+    els.docSection.addEventListener("change", refreshPreview);
 }
 
 els.wikiSelect.addEventListener("change", async () => { await switchWiki(els.wikiSelect.value); });
