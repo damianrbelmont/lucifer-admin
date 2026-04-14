@@ -334,6 +334,35 @@ select {
     white-space: pre;
 }
 
+.floating-link-btn {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 1000;
+    min-width: 88px;
+    padding: 12px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: linear-gradient(145deg, rgba(184, 155, 94, 0.95), rgba(166, 136, 80, 0.95));
+    color: #050b14;
+    font-weight: bold;
+    letter-spacing: 0.8px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.45);
+    transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+}
+
+.floating-link-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    filter: brightness(1.05);
+}
+
+.floating-link-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 .is-hidden {
     display: none !important;
 }
@@ -380,5 +409,10 @@ select {
     .sections-toolbar > *,
     .advanced-tools > * {
         width: 100%;
+    }
+
+    .floating-link-btn {
+        right: 12px;
+        bottom: 12px;
     }
 }

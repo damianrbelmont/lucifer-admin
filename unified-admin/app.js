@@ -46,11 +46,24 @@ const db = getFirestore(app);
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
 
-const ids = ["wikiSelect", "typeSelect", "newFromTemplateBtn", "reloadTemplateBtn", "templateStatus", "authStatus", "authBtn", "docId", "docSlug", "docSection", "docName", "seoTitle", "seoDescription", "coverImage", "summaryField", "addUngroupedSectionBtn", "addGroupBtn", "ungroupedSections", "groupsContainer", "aliasField", "tagsField", "relCharacters", "relLocations", "relOrganizations", "relEvents", "relConcepts", "relArtifacts", "relCreatures", "relRelated", "extraRace", "extraBirth", "extraDeath", "extraAffiliation", "firebaseTargetId", "loadBtn", "createBtn", "saveBtn", "deleteBtn", "downloadBtn", "actionStatus", "loadedInfo", "applyAdvancedBtn", "formatAdvancedBtn", "advancedJson", "jsonPreview"];
+const ids = ["wikiSelect", "typeSelect", "newFromTemplateBtn", "reloadTemplateBtn", "templateStatus", "authStatus", "authBtn", "docId", "docSlug", "docSection", "docName", "seoTitle", "seoDescription", "coverImage", "summaryField", "addUngroupedSectionBtn", "addGroupBtn", "ungroupedSections", "groupsContainer", "aliasField", "tagsField", "relCharacters", "relLocations", "relOrganizations", "relEvents", "relConcepts", "relArtifacts", "relCreatures", "relRelated", "extraRace", "extraBirth", "extraDeath", "extraAffiliation", "firebaseTargetId", "loadBtn", "createBtn", "saveBtn", "deleteBtn", "downloadBtn", "actionStatus", "loadedInfo", "applyAdvancedBtn", "formatAdvancedBtn", "advancedJson", "jsonPreview", "wrapWikiLinkBtn"];
 const els = {};
 ids.forEach((id) => { els[id] = document.getElementById(id); });
 
-const state = { currentWiki: "lucifer", currentType: "character", isAuthorized: false, loadedDocId: "", workingPayload: null, templateCache: new Map(), sections: { ungrouped: [], groups: [] }, keySerial: 1, isHydrating: false };
+const state = {
+    currentWiki: "lucifer",
+    currentType: "character",
+    isAuthorized: false,
+    loadedDocId: "",
+    workingPayload: null,
+    templateCache: new Map(),
+    sections: { ungrouped: [], groups: [] },
+    keySerial: 1,
+    isHydrating: false,
+    linkSelection: { el: null, start: 0, end: 0 }
+};
+
+const LINKABLE_SELECTOR = "textarea, input[type=\"text\"], input[type=\"search\"], input[type=\"url\"], input[type=\"email\"], input[type=\"tel\"]";
 
 function clone(v) { return JSON.parse(JSON.stringify(v)); }
 function isObj(v) { return v !== null && typeof v === "object" && !Array.isArray(v); }
@@ -91,6 +104,80 @@ function collRef() { const s = seg(cfg().itemsCollection); if (!s.length) throw 
 function itemRef(id) { const x = clean(id); if (!x) throw new Error("ID vacio."); return doc(collRef(), x); }
 function indexRef() { const s = seg(cfg().indexDocument); if (s.length < 2 || s.length % 2 !== 0) throw new Error("indexDocument invalido."); return doc(db, ...s); }
 function mk(prefix) { const k = `${prefix}_${state.keySerial}`; state.keySerial += 1; return k; }
+
+function isLinkableField(el) {
+    return !!el && typeof el.matches === "function" && el.matches(LINKABLE_SELECTOR);
+}
+
+function updateWrapButtonState() {
+    const hasSelection = !!state.linkSelection.el && state.linkSelection.end > state.linkSelection.start;
+    els.wrapWikiLinkBtn.disabled = !hasSelection;
+}
+
+function rememberLinkSelection(el) {
+    if (!isLinkableField(el)) {
+        state.linkSelection = { el: null, start: 0, end: 0 };
+        updateWrapButtonState();
+        return;
+    }
+    const start = Number.isInteger(el.selectionStart) ? el.selectionStart : 0;
+    const end = Number.isInteger(el.selectionEnd) ? el.selectionEnd : start;
+    state.linkSelection = { el, start, end };
+    updateWrapButtonState();
+}
+
+function trackSelectionEvent(event) {
+    const field = event?.target;
+    if (!isLinkableField(field)) return;
+    rememberLinkSelection(field);
+}
+
+function wrapSelectionWithWikiLink() {
+    const { el, start, end } = state.linkSelection;
+    if (!isLinkableField(el) || !el.isConnected) {
+        setStatus(els.actionStatus, "Selecciona primero una palabra en un campo de texto.", true);
+        rememberLinkSelection(null);
+        return;
+    }
+
+    const value = el.value || "";
+    const from = Math.max(0, Number.isInteger(start) ? start : 0);
+    const to = Math.max(from, Number.isInteger(end) ? end : from);
+    if (to <= from || to > value.length) {
+        setStatus(els.actionStatus, "Selecciona una palabra valida para envolverla.", true);
+        rememberLinkSelection(el);
+        return;
+    }
+
+    const selected = value.slice(from, to);
+    const leftPad = (selected.match(/^\s*/) || [""])[0];
+    const rightPad = (selected.match(/\s*$/) || [""])[0];
+    const core = selected.slice(leftPad.length, selected.length - rightPad.length);
+    if (!core) {
+        setStatus(els.actionStatus, "No hay texto util en la seleccion.", true);
+        rememberLinkSelection(el);
+        return;
+    }
+    if (core.startsWith("[[") && core.endsWith("]]")) {
+        setStatus(els.actionStatus, "La seleccion ya estaba envuelta con [[ ]].");
+        el.focus();
+        if (typeof el.setSelectionRange === "function") el.setSelectionRange(from, to);
+        rememberLinkSelection(el);
+        return;
+    }
+
+    const wrapped = `[[${core}]]`;
+    const replacement = `${leftPad}${wrapped}${rightPad}`;
+    el.value = `${value.slice(0, from)}${replacement}${value.slice(to)}`;
+
+    const nextStart = from + leftPad.length;
+    const nextEnd = nextStart + wrapped.length;
+    el.focus();
+    if (typeof el.setSelectionRange === "function") el.setSelectionRange(nextStart, nextEnd);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    rememberLinkSelection(el);
+    setStatus(els.actionStatus, "Marcado wiki aplicado con [[ ]].");
+}
 
 function setControlVisible(controlId, visible) {
     const element = els[controlId];
@@ -969,6 +1056,19 @@ function bindPreviewInputs() {
     els.docSection.addEventListener("change", refreshPreview);
 }
 
+document.addEventListener("selectionchange", () => {
+    const active = document.activeElement;
+    if (!isLinkableField(active)) {
+        rememberLinkSelection(null);
+        return;
+    }
+    rememberLinkSelection(active);
+});
+document.addEventListener("focusin", trackSelectionEvent, true);
+document.addEventListener("mouseup", trackSelectionEvent, true);
+document.addEventListener("keyup", trackSelectionEvent, true);
+document.addEventListener("select", trackSelectionEvent, true);
+
 els.wikiSelect.addEventListener("change", async () => { await switchWiki(els.wikiSelect.value); });
 els.typeSelect.addEventListener("change", async () => { state.currentType = clean(els.typeSelect.value).toLowerCase(); applyVisibility(); await loadTemplate(false); });
 els.newFromTemplateBtn.addEventListener("click", async () => { try { await loadTemplate(false); } catch (error) { setStatus(els.templateStatus, error.message || "No se pudo cargar plantilla.", true); } });
@@ -983,6 +1083,9 @@ els.deleteBtn.addEventListener("click", deleteDocFromFirebase);
 els.downloadBtn.addEventListener("click", downloadJson);
 els.applyAdvancedBtn.addEventListener("click", applyAdvancedJson);
 els.formatAdvancedBtn.addEventListener("click", formatAdvancedJson);
+els.wrapWikiLinkBtn.addEventListener("pointerdown", (event) => { event.preventDefault(); });
+els.wrapWikiLinkBtn.addEventListener("mousedown", (event) => { event.preventDefault(); });
+els.wrapWikiLinkBtn.addEventListener("click", wrapSelectionWithWikiLink);
 
 bindPreviewInputs();
 setFirebaseButtons(false);
@@ -990,6 +1093,7 @@ setAuthMode("login");
 setStatus(els.authStatus, "Debes iniciar sesion para continuar.");
 setStatus(els.actionStatus, "Sin operaciones.");
 setStatus(els.templateStatus, "Listo.");
+updateWrapButtonState();
 
 onAuthStateChanged(auth, (user) => {
     const ok = isAuthorizedUser(user);
